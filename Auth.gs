@@ -1,0 +1,4 @@
+function getCurrentUser() { return withErrorHandling_('getCurrentUser', () => { const email = getCurrentUserEmail_().toLowerCase(); const user = readRecords_('Users').records.find(u => String(u.Email).toLowerCase() === email && String(u.Active).toLowerCase() !== 'false'); if (!user) return { authorized:false, email:email }; return { authorized:true, email:email, name:(user.FirstName+' '+user.LastName).trim(), firstName:user.FirstName, lastName:user.LastName, role:user.Role, subjectGroup:user.SubjectGroup, position:user.Position }; }); }
+function requireUser_(roles) { const u = getCurrentUser(); if (!u.authorized) throw new Error('บัญชีนี้ไม่ได้รับอนุญาตให้ใช้งานระบบ'); if (roles && roles.indexOf(u.role) < 0) throw new Error('คุณไม่มีสิทธิ์ดำเนินการนี้'); return u; }
+function isTeacher_(u) { return u && u.role === 'Teacher'; }
+function isAcademic_(u) { return u && (u.role === 'Academic' || u.role === 'Admin'); }
