@@ -1,28 +1,15 @@
-# Ban Jong School ExamFlow v2.0
+# Ban Jong School ExamFlow v2.2
 
 ระบบส่งข้อสอบโรงเรียนบ้านจองสำหรับ Google Apps Script + Google Sheets + Google Drive + Google Docs เป็นระบบเดียว ตั้งแต่ครูสร้างร่าง ส่งไฟล์ กำหนดตัวชี้วัด ฝ่ายวิชาการตรวจและให้แก้ไข อนุมัติ สร้างใบปะหน้า PDF และบันทึกการพิมพ์
 
-## เว็บไซต์ที่เผยแพร่
+## เว็บไซต์พร้อมใช้
 
-หน้าเว็บใน dist/index.html เป็น ExamFlow แบบไม่ใช้หน้า Login และใช้ธีมสีแดง–เหลืองของระบบวิชาการโรงเรียนบ้านจอง โดยมีความสามารถดังนี้
-
-- โหลดรายชื่อครู ห้องเรียน รายวิชา และ TeachingAssignments จาก Spreadsheet เดิม
-- จำกัดตัวเลือกวิชาและห้องตาม TeacherID และ TeacherID2
-- แบบฟอร์มหน้าเดียว ตัวอักษรใหญ่ รองรับมือถือ 360–430 px
-- Autosave ร่างและไฟล์ใน LocalStorage/IndexedDB พร้อมแจ้ง Revision conflict ระหว่างหน้าต่าง
-- ตรวจไฟล์ PDF, DOC และ DOCX จากนามสกุล ขนาด และ file signature
-- ตรวจช่วงข้อที่ขาด ซ้ำ และเกินจำนวนจริง
-- Review checklist, ส่งกลับแก้ไข, Resubmit, Approval, Version History และ Audit Log
-- ใบปะหน้า A4 แนวตั้ง ไม่มี QR, ลายเซ็น, Checklist หรือ Print Log ด้านล่าง
-- Auto sync Master Data ทุก 30 วินาทีเมื่อไม่มีงานที่กำลังแก้หรือ Modal สำคัญ
-
-ข้อจำกัดของ Sites รุ่นนี้คือรายการข้อสอบ ไฟล์ และ Audit Log เก็บในอุปกรณ์ของผู้ใช้ ส่วน Master Data อ่านจาก Google Sheets จริง การใช้ร่วมกันหลายเครื่องและการจัดเก็บไฟล์ใน Google Drive ต้องเผยแพร่ Google Apps Script backend ในโฟลเดอร์หลักและเชื่อมหน้าเว็บกับ backend ก่อนใช้งานเป็นระบบกลาง
-
-Backup ก่อนปรับรอบนี้:
-
-- Spreadsheet copy: BanJong-before-examflow-20260924-2137
-- Spreadsheet ID: 1EYSPpzJ6kt43aGxptA16PhtTZhgELkuJvrAtrG5HwjA
-- Source tag: before-examflow-20260924-2137
+- เว็บสาธารณะสำหรับใช้งานทันที: https://aeklovefriend-create.github.io/ban-jong-examflow/
+- Repository: https://github.com/aeklovefriend-create/ban-jong-examflow
+- ระบบใช้โหมดไม่ต้อง Login ตามที่โรงเรียนขอ โดยให้เลือกชื่อครูและบันทึกผู้ดำเนินการเป็น `OPEN_UNVERIFIED`
+- หน้าตรวจมี Dashboard ติดตามครูทุกคน, กล่องเปิดไฟล์ข้อสอบ/เฉลยจาก Drive/Docs และ fallback ไปคลังระบบเดิม
+- ตัวชี้วัดเลือกจากรายการ Master ที่กรองตามชั้นและวิชา ครูไม่ต้องพิมพ์รหัสเอง
+- หน้าเว็บอ่าน `Indicators`, `ExamTasks`, `ExamSubmissions` และ `ExamFiles` จาก Google Sheets ชุดจริงผ่าน GViz; ถ้าตาราง Exam* ยังว่าง ระบบจะแสดงข้อมูลตัวอย่างและลิงก์คลังเดิมให้ตรวจต่อได้
 
 ## สถาปัตยกรรม
 
@@ -93,7 +80,7 @@ URL ระบบทดลองที่ให้มาไม่สามาร�
 5. ระบบจะสร้าง Sheets, default settings, folder root, exam types, subjects, classes, indicators ตัวอย่าง, users ตัวอย่าง และ submissions ตัวอย่าง 5 รายการ
 6. เปิด Sheet `Users` แทนที่อีเมล `teacher1@example.com` ฯลฯ ด้วยบัญชีจริง และเพิ่มผู้รับบท `Academic`/`Admin` ตามต้องการ บัญชีที่ใช้ run setup จะถูกเพิ่มเป็น Admin อัตโนมัติถ้า Users ยังว่าง
 7. แก้ `Settings` เช่น `SCHOOL_LOGO_URL`, `ACADEMIC_YEAR`, `SEMESTER`, `DEADLINE_START`, `DEADLINE_END`, `DIRECTOR_NAME`, `ACADEMIC_HEAD_NAME`, `COVER_TEMPLATE_ID` (ถ้ามี) และ `ROOT_FOLDER_ID` ตามจริง
-8. นำเข้า Indicators จริงจาก `kru.kumsub.com` โดยเตรียม CSV/Google Sheet แล้วแปลงเป็น JSON array ตาม fields `AcademicYear, SubjectGroup, Grade, Strand, Standard, Code, Description, Type` หรือวาง JSON ในเมนู Admin → ตั้งค่าระบบ ระบบไม่ scrape ทุกครั้งที่เปิดหน้า
+8. รุ่น GitHub Pages มี Indicator Master ฝังในหน้าเว็บแล้ว 1,059 รายการไม่ซ้ำจาก PDF ทั้ง 8 กลุ่มสาระที่ผู้ใช้ให้มา ครบ ป.1–ป.6 และกรองตามชั้น/กลุ่มสาระอัตโนมัติ หากใช้ Apps Script backend ให้ import ชุดเดียวกันลง Sheet `Indicators` ด้วย fields `AcademicYear, SubjectGroup, Grade, Strand, Standard, Code, Description, Type` ระบบไม่ scrape ทุกครั้งที่เปิดหน้า
 9. Deploy → New deployment → Web app; Execute as: Me; Who has access: ผู้ใช้ในโดเมนโรงเรียน หรือ Anyone with Google account หากโรงเรียนใช้ Gmail ส่วนตัวหลายบัญชี
 10. เปิด URL ด้วยบัญชี Teacher และทดสอบ upload/review/approve/print ตามชุดทดสอบด้านล่าง
 
