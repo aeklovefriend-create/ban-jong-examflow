@@ -164,10 +164,10 @@
   "use strict";
   var SHEET_ID="1OMAa-7BsGU7AvLVbk2d1H3U1Mn19mqFDF-VFQ1OvjSk";
   var STATE_KEY="bj_examflow_v3_state";
-  var CLOUD_API_URL="https://script.google.com/macros/s/AKfycbzMXHH5yRyvPmwikCMrviMkPGrGXAkKhoWGbQk6oVz6EFfiBYgCuxX70OxCO1ezDYISOA/exec",CLOUD_TOKEN="BJX-2569-CLOUD-9f6f2a7c4e1b";
+  var CLOUD_API_URL="https://script.google.com/macros/s/AKfycbzMXHH5yRyvPmwikCMrviMkPGrGXAkKhoWGbQk6oVz6EFfiBYgCuxX70OxCO1ezDYISOA/exec";
   function cloudRead(){return new Promise(function(resolve,reject){var cb='bjCloud_'+Date.now()+'_'+Math.random().toString(36).slice(2),script=document.createElement('script'),timer=setTimeout(function(){try{delete window[cb]}catch(e){}script.remove();reject(new Error('cloud timeout'))},12000);window[cb]=function(data){clearTimeout(timer);try{delete window[cb]}catch(e){}script.remove();resolve(data)};script.onerror=function(){clearTimeout(timer);try{delete window[cb]}catch(e){}script.remove();reject(new Error('cloud error'))};script.src=CLOUD_API_URL+'?action=sync&callback='+encodeURIComponent(cb)+'&_='+Date.now();document.head.appendChild(script)})}
   function fileDataUrl(file){return new Promise(function(resolve,reject){if(!file)return resolve('');var r=new FileReader();r.onload=function(){resolve(String(r.result||''))};r.onerror=reject;r.readAsDataURL(file)})}
-  async function cloudPost(action,payload){var body=new URLSearchParams({action:action,token:CLOUD_TOKEN,payload:JSON.stringify(payload)});await fetch(CLOUD_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body});return true}
+  async function cloudPost(action,payload){var body=new URLSearchParams({action:action,payload:JSON.stringify(payload)});await fetch(CLOUD_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body});return true}
   async function syncSubmissionToCloud(record){var files=[];for(var kind of ['exam','answer']){var f=app.files[kind];if(f)files.push({kind:kind,name:f.name,type:f.type,size:f.size})}await cloudPost('upsertSubmission',{id:record.id,taskId:record.id,assignmentId:record.assignmentId,teacherId:record.teacherId,teacherName:record.teacherName,subjectId:record.subjectId,subjectName:record.subjectName,subjectCode:record.subjectCode,classId:record.classId,className:record.className,academicYear:record.academicYear,semester:record.semester,examType:record.examType,totalQuestions:record.totalQuestions,totalScore:record.totalScore,duration:record.duration,studentCount:record.studentCount,copyCount:record.copyCount,status:record.status,version:record.version,submittedAt:record.submittedAt,updatedAt:record.updatedAt,createdAt:record.createdAt,indicators:record.indicators,files:files});for(var fmeta of files){var f=app.files[fmeta.kind];if(f){var dataUrl=await fileDataUrl(f);await cloudPost('uploadFile',{id:record.id,taskId:record.id,version:record.version,file:{kind:fmeta.kind,name:f.name,type:f.type,size:f.size,dataUrl:dataUrl}})}}return true}
 
   var DRAFT_KEY="bj_examflow_v3_draft_";
@@ -318,6 +318,123 @@
   var originalRenderAllV22=renderAll;
   renderAll=function(){originalRenderAllV22();renderIndicatorPicker();renderAcademicTracking()};
   function clearAllLocalData(){Object.keys(localStorage).filter(function(k){return k.indexOf("bj_examflow_")===0}).forEach(function(k){try{localStorage.removeItem(k)}catch(e){}});try{localStorage.setItem("bj_examflow_samples_cleared","1")}catch(e){}try{indexedDB.deleteDatabase("bj_examflow_files")}catch(e){}app.state=defaultState();app.indicators=[];app.files={exam:null,answer:null};app.selectedAssignmentId="";persist("CLEAR_LOCAL","LOCAL","OPEN_UNVERIFIED:ฝ่ายวิชาการ");toast("ล้างข้อมูลบนอุปกรณ์นี้แล้ว","good");go("dashboard")}
+  // Central storage is authoritative. Local storage is only a draft/retry buffer.
+  STATUS_LABELS.Uploading='กำลังส่ง / รอส่งซ้ำ';
+  var accessKey=window.EXAMFLOW_ACCESS_KEY||new URLSearchParams(location.search).get('key')||'';
+  function nativeGas(){return typeof google!=='undefined'&&google.script&&google.script.run;}
+  function jsonp(action,payload){return new Promise(function(resolve,reject){
+    var cb='bjAck_'+Date.now()+'_'+Math.random().toString(36).slice(2),s=document.createElement('script');
+    var timer=setTimeout(function(){cleanup();reject(new Error('ติดต่อ GAS ไม่สำเร็จ กรุณาลองอีกครั้ง'));},60000);
+    function cleanup(){clearTimeout(timer);s.remove();delete window[cb];}
+    window[cb]=function(r){cleanup();resolve(r);};s.onerror=function(){cleanup();reject(new Error('ติดต่อ GAS ไม่สำเร็จ'));};
+    s.src=CLOUD_API_URL+'?'+new URLSearchParams(Object.assign({action:action,key:accessKey,callback:cb,_:Date.now()},payload||{}));document.head.appendChild(s);
+  });}
+  function rpc(action,payload){return new Promise(function(resolve,reject){
+    google.script.run.withSuccessHandler(function(r){r&&r.ok?resolve(r):reject(new Error(r&&r.message||'GAS ยังไม่ยืนยันการบันทึก'));}).withFailureHandler(function(){reject(new Error('เชื่อมต่อ GAS ไม่สำเร็จ กรุณาลองอีกครั้ง'));}).cloudRpc(action,payload||{},accessKey);
+  });}
+  cloudRead=async function(){var r=nativeGas()?await rpc('sync',{}):await jsonp('sync');if(!r||!r.ok)throw new Error(r&&r.message||'อ่านข้อมูลส่วนกลางไม่สำเร็จ');return r;};
+  cloudPost=async function(action,payload){
+    if(nativeGas()) return rpc(action,payload);
+    var requestId=crypto.randomUUID(),body=new URLSearchParams({action:action,key:accessKey,requestId:requestId,payload:JSON.stringify(payload)});
+    await fetch(CLOUD_API_URL,{method:'POST',mode:'no-cors',body:body});
+    for(var i=0;i<8;i++){var receipt=await jsonp('receipt',{requestId:requestId});if(!receipt.pending){if(!receipt.ok)throw new Error(receipt.message||'บันทึกไม่สำเร็จ');return receipt;}await new Promise(r=>setTimeout(r,1500));}
+    throw new Error('ยังไม่ได้รับคำยืนยันจาก GAS เก็บร่างไว้แล้ว กรุณากดส่งซ้ำ');
+  };
+  function isExample(s){return /^BJ-2569-F1-(P4-TH-001|P4-SCI-002)$/.test(s.id)||s.source==='sample';}
+  seedIfEmpty=function(){};
+  function centralRecords(data){
+    var tasks={};data.tasks.forEach(t=>tasks[t.TaskID]=t);
+    var all=data.submissions.map(function(r){var t=tasks[r.TaskID]||{},d=jsonSafe(r.DraftJSON||t.DraftJSON),files={};
+      data.files.filter(f=>String(f.SubmissionID||f.TaskID)===String(r.SubmissionID)&&Number(f.Version)===Number(r.Version)).forEach(function(f){files[f.Kind]={name:f.Name,size:Number(f.Size),type:f.MimeType,driveFileId:f.DriveFileID,driveUrl:f.DriveUrl,url:f.DriveUrl};});
+      return Object.assign({},d,{id:r.SubmissionID,assignmentId:d.assignmentId||t.AssignmentID,teacherId:d.teacherId||t.TeacherID,teacherName:d.teacherName||t.TeacherName,subjectName:d.subjectName||t.SubjectName,className:d.className||t.ClassName,status:r.Status,version:Number(r.Version),submittedAt:r.SubmittedAt,updatedAt:r.UpdatedAt,approvedAt:r.ApprovedAt,approvedBy:r.ApprovedBy,files:files,indicators:d.indicators||[],comments:jsonSafe(r.CommentsJSON||'[]'),source:'Exam*',versions:[]});
+    });
+    var latest={};all.forEach(s=>{if(!latest[s.id]||latest[s.id].version<s.version)latest[s.id]=s;});
+    Object.values(latest).forEach(function(s){s.versions=all.filter(v=>v.id===s.id).sort((a,b)=>a.version-b.version).map(v=>({version:v.version,at:v.submittedAt,actor:v.teacherName,files:v.files,indicators:v.indicators}));});
+    return Object.values(latest);
+  }
+  function acceptCentral(data){
+    var central=centralRecords(data),ids=new Set(central.map(s=>s.id));
+    var pending=app.state.submissions.filter(s=>!isExample(s)&&s.source!=='Exam*'&&!ids.has(s.id));
+    pending.forEach(s=>{s.status='Uploading';s.pendingCloud=true;});
+    app.state.submissions=central.concat(pending);app.masters.examTasks=data.tasks;app.masters.examSubmissions=data.submissions;app.masters.examFiles=data.files;
+    localStorage.setItem(STATE_KEY,JSON.stringify(app.state));renderAll();renderRecovery();
+  }
+  syncMasters=async function(manual){
+    if(app.busy||app.dirty||app.modal||app.syncing)return;
+    if(!accessKey){byId('offlineBanner').classList.remove('hidden');byId('offlineBanner').textContent='กรุณาเปิดลิงก์ส่วนตัวที่หัวหน้าวิชาการส่งให้ เพื่อเชื่อม GAS กลาง';return;}
+    app.syncing=true;byId('refreshBtn').disabled=true;
+    try {
+      var cloud=await cloudRead();
+      // Master reads are independent of submissions. A master failure cannot hide an exam.
+      if(!app.masterFetched){try{var m=await Promise.all(['Teachers','Classes','Subjects','TeachingAssignments'].map(n=>gviz(n,Date.now())));app.masters=Object.assign({},app.masters,{teachers:m[0],classes:m[1],subjects:m[2],assignments:m[3]});app.masterFetched=true;localStorage.setItem(MASTER_KEY,JSON.stringify(app.masters));}catch(e){}}
+      app.access=cloud.access;
+      if(cloud.access.role==='Teacher'){app.selectedTeacherId=cloud.access.teacherId;app.masters.teachers=app.masters.teachers.filter(t=>t.TeacherID===cloud.access.teacherId);byId('academicToggle').classList.add('hidden');byId('teacherBtn').disabled=true;}
+      acceptCentral(cloud);renderAccessLinks();byId('lastSync').textContent=new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});byId('offlineBanner').classList.add('hidden');
+      byId('masterStatus').textContent='เชื่อมต่อ GAS กลางแล้ว · ข้อสอบ '+cloud.submissions.filter(s=>s.Status!=='Uploading').length+' เวอร์ชัน';
+      if(manual)toast('อ่านข้อสอบจาก GAS กลางแล้ว','good');
+    }catch(e){byId('offlineBanner').classList.remove('hidden');byId('offlineBanner').textContent='ยังอ่านข้อมูลส่วนกลางไม่ได้ — '+e.message;if(manual)toast(e.message,'bad');}
+    finally{app.syncing=false;byId('refreshBtn').disabled=false;}
+  };
+  syncSubmissionToCloud=async function(record){
+    var upload={};for(var kind of ['exam','answer']){var meta=record.files&&record.files[kind];upload[kind]=app.files[kind]||(meta&&meta.storageKey?await getFile(meta.storageKey):null);if(!upload[kind]&&!(meta&&meta.driveFileId))throw new Error('กรุณาแนบไฟล์ข้อสอบและเฉลยให้ครบ');}
+    await cloudPost('upsertSubmission',record);
+    for(var kind of ['exam','answer']){if(upload[kind]){byId('submitReviewBtn').textContent=kind==='exam'?'กำลังเก็บข้อสอบใน GAS…':'กำลังเก็บเฉลยใน GAS…';var f=upload[kind];await cloudPost('uploadFile',{id:record.id,taskId:record.id,version:record.version,file:{kind:kind,name:f.name,type:f.type,size:f.size,dataUrl:await fileDataUrl(f)}});}}
+    return cloudPost('finalizeSubmission',{id:record.id,version:record.version});
+  };
+  submitForReview=async function(){
+    if(app.busy)return;
+    var errors=validateSubmission();if(errors.length){showMessage('ยังส่งไม่ได้',errors.map(esc).join('<br>'));return;}
+    var d=collectDraft(),a=teacherAssignments(app.selectedTeacherId).find(a=>a.AssignmentID===app.selectedAssignmentId),t=getTeacher(app.selectedTeacherId);
+    if(!a||!t)return;
+    if(!await confirmBox('ส่งข้อสอบเข้าระบบกลาง',esc(t.DisplayName)+' · '+esc(a.SubjectName)+' · '+esc(a.ClassName),'ส่งข้อสอบ','btn-primary'))return;
+    app.busy=true;byId('submitReviewBtn').disabled=true;
+    try {
+      var previous=app.state.submissions.find(s=>s.assignmentId===a.AssignmentID&&s.teacherId===t.TeacherID&&s.examType===d.examType&&String(s.academicYear)===String(d.academicYear)&&String(s.semester)===String(d.semester));
+      if(previous&&!['NeedRevision','Uploading','Draft'].includes(previous.status))throw new Error('ส่งรายวิชานี้แล้ว เปิดดูสถานะได้ที่งานของฉัน');
+      var record=Object.assign({},d,{id:previous?previous.id:'BJ-'+d.academicYear+'-'+crypto.randomUUID(),teacherName:t.DisplayName,subjectId:a.SubjectID,subjectName:a.SubjectName,classId:a.ClassID,className:a.ClassName,version:previous?(previous.status==='NeedRevision'?previous.version+1:previous.version):1,status:'Uploading',updatedAt:nowIso(),createdAt:previous&&previous.createdAt||nowIso(),comments:previous&&previous.comments||[],versions:previous&&previous.versions||[],pendingCloud:true});
+      for(var kind of ['exam','answer']){if(!app.files[kind])throw new Error('กรุณาเลือกไฟล์ข้อสอบและเฉลยสำหรับเวอร์ชันนี้');var key=record.id+'_v'+record.version+'_'+kind;await putFile(key,app.files[kind]);record.files[kind].storageKey=key;}
+      app.state.submissions=app.state.submissions.filter(s=>s.id!==record.id);app.state.submissions.unshift(record);persist('PENDING_UPLOAD',record.id,actor());
+      var ack=await syncSubmissionToCloud(record);record.status=ack.status;record.pendingCloud=false;record.source='Exam*';persist('SUBMIT_CONFIRMED',record.id,actor());
+      localStorage.removeItem(draftKey());app.dirty=false;app.files={exam:null,answer:null};byId('examFile').value='';byId('answerFile').value='';toast('GAS รับข้อสอบและเฉลยครบแล้ว ฝ่ายวิชาการเปิดตรวจได้','good');go('work');
+    }catch(e){toast(e.message,'bad');saveDraft(true);}
+    finally{app.busy=false;byId('submitReviewBtn').disabled=false;byId('submitReviewBtn').textContent='ส่งฝ่ายวิชาการ';syncMasters(false);}
+  };
+  openStoredFile=async function(s,kind){
+    var popup=window.open('','_blank');if(popup)popup.document.body.textContent='กำลังอ่านไฟล์จาก GAS กลาง…';
+    try {
+      var payload={id:s.id,version:s.version,kind:kind};var r=nativeGas()?await rpc('readFile',payload):await jsonp('readFile',payload);
+      if(!r.ok)throw new Error(r.message);var bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:r.type}));
+      if(r.type==='application/pdf'&&popup)popup.location.href=url;
+      else {if(popup)popup.close();var link=document.createElement('a');link.href=url;link.download=r.name;link.click();toast('ดาวน์โหลดไฟล์แล้ว เปิดด้วย Word หรือโปรแกรมอ่านเอกสาร','good');}
+      setTimeout(()=>URL.revokeObjectURL(url),300000);
+    }catch(e){if(popup)popup.close();toast(e.message,'bad');}
+  };
+  openReview=function(id){
+    var s=app.state.submissions.find(s=>s.id===id);if(!s)return;
+    var checks=['รูปแบบข้อสอบถูกต้อง','จำนวนข้อถูกต้อง','คะแนนถูกต้อง','คำสั่งชัดเจน','ภาษาเหมาะสม','ตัวเลือกไม่กำกวม','มีเฉลยครบ','ตัวชี้วัดสอดคล้อง','ครอบคลุมตัวชี้วัด','ไม่มีข้อมูลส่วนบุคคลที่ไม่ควรเปิดเผย','พร้อมนำไปใช้สอบ'];
+    openModal('ตรวจข้อสอบ',reviewFilePanel(s)+'<p>'+esc(s.teacherName)+' · '+esc(s.subjectName)+' · '+esc(s.className)+' · V'+s.version+'</p><div class="checklist">'+checks.map((c,i)=>'<label class="check-row"><input type="checkbox" data-check="'+i+'">'+esc(c)+'</label>').join('')+'</div><label for="reviewComment">ข้อเสนอแนะ</label><textarea id="reviewComment" class="textarea"></textarea>','<button id="returnRevisionBtn" class="btn btn-danger">ส่งกลับแก้ไข</button><button id="approveBtn" class="btn btn-green">อนุมัติข้อสอบ</button>');bindReviewFileButtons(s);
+    async function decide(status){var comment=byId('reviewComment').value.trim(),checked=Array.from(document.querySelectorAll('[data-check]')).map(c=>c.checked);
+      if(status==='NeedRevision'&&!comment){toast('กรุณาระบุข้อเสนอแนะ','bad');return;}
+      if(status==='ReadyToPrint'&&!checked.every(Boolean)){toast('กรุณาตรวจให้ครบทุกข้อ','bad');return;}
+      if(!await confirmBox('ยืนยัน'+(status==='NeedRevision'?'ส่งกลับแก้ไข':'อนุมัติ'),esc(s.teacherName)+' · '+esc(s.subjectName),'ยืนยัน','btn-primary'))return;
+      app.busy=true;try{await cloudPost('updateStatus',{id:s.id,version:s.version,status:status,comment:comment,checklist:checked,approvedAt:status==='ReadyToPrint'?nowIso():'',approvedBy:'ฝ่ายวิชาการ'});closeModal();toast('บันทึกผลตรวจใน GAS แล้ว','good');}catch(e){toast(e.message,'bad');}finally{app.busy=false;syncMasters(false);}}
+    byId('returnRevisionBtn').onclick=()=>decide('NeedRevision');byId('approveBtn').onclick=()=>decide('ReadyToPrint');
+  };
+  function renderRecovery(){
+    var host=byId('recoveryPanel');if(!host){host=document.createElement('div');host.id='recoveryPanel';host.className='notice notice-warn';byId('page-work').prepend(host);}
+    var rows=app.state.submissions.filter(s=>s.pendingCloud||s.status==='Uploading');
+    host.classList.toggle('hidden',!rows.length);host.innerHTML='<strong>รายการที่ยังส่งเข้า GAS ไม่ครบ '+rows.length+' รายการ</strong><p>กู้รายการเดิมจากเครื่องที่เคยส่งได้ โดยไม่ต้องกรอกใหม่</p>'+rows.map(s=>'<p>'+esc(s.teacherName)+' · '+esc(s.subjectName)+' <button class="btn btn-primary" data-recover="'+esc(s.id)+'">ส่งเข้าส่วนกลางอีกครั้ง</button></p>').join('');
+    host.querySelectorAll('[data-recover]').forEach(b=>b.onclick=async function(){if(app.busy)return;app.busy=true;b.disabled=true;var s=rows.find(s=>s.id===b.dataset.recover);var saved=app.files;app.files={exam:null,answer:null};try{var ack=await syncSubmissionToCloud(s);s.status=ack.status;s.pendingCloud=false;s.source='Exam*';persist('RECOVER_CONFIRMED',s.id,actor());toast('กู้และส่งเข้าระบบกลางเรียบร้อย','good');}catch(e){toast(e.message+' — กรุณาใช้เครื่องเดิมที่มีไฟล์','bad');}finally{app.files=saved;app.busy=false;b.disabled=false;syncMasters(false);}});
+  }
+  var beforeRepairLoad=loadState;
+  loadState=function(){var s=beforeRepairLoad();s.submissions=s.submissions.filter(x=>!isExample(x));return s;};
+  var beforeRepairGo=go;go=function(page){beforeRepairGo(page);renderRecovery();};
+
+  function renderAccessLinks(){
+    if(!app.access||app.access.role!=='Academic'||byId('schoolAccessLinks'))return;
+    var panel=document.createElement('div');panel.id='schoolAccessLinks';panel.className='notice';panel.innerHTML='<button class="btn btn-primary" id="showTeacherLinks">ลิงก์ส่วนตัวสำหรับส่งให้ครู</button><div id="teacherLinksList"></div>';byId('page-review').prepend(panel);
+    byId('showTeacherLinks').onclick=async function(){try{var r=await cloudPost('accessLinks',{});byId('teacherLinksList').innerHTML=r.links.map(l=>'<p><strong>'+esc(l.name)+'</strong> <button class="btn btn-ghost" data-copy-teacher="'+esc(l.url)+'">คัดลอกลิงก์</button></p>').join('');document.querySelectorAll('[data-copy-teacher]').forEach(b=>b.onclick=async()=>{await navigator.clipboard.writeText(b.dataset.copyTeacher);toast('คัดลอกลิงก์แล้ว','good');});}catch(e){toast(e.message,'bad');}};
+  }
   init();
   if(byId("indicatorSearch"))byId("indicatorSearch").addEventListener("input",renderIndicatorPicker);
   if(byId("indicatorSelect"))byId("indicatorSelect").addEventListener("change",indicatorPickerChanged);
@@ -327,3 +444,4 @@
 </script>
 </body>
 </html>
+
