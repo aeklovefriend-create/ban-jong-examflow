@@ -24,6 +24,7 @@ function doPost(e) {
     const payload = JSON.parse(p.payload || '{}');
     let result;
     if (p.action === 'upsertSubmission') result = cloudUpsertSubmission_(payload);
+    else if (p.action === 'uploadFile') result = cloudUploadFile_(payload);
     else if (p.action === 'updateStatus') result = cloudUpdateStatus_(payload);
     else result = {ok:false, message:'unknown action'};
     return cloudOutput_(result, p.callback);
@@ -105,6 +106,15 @@ function cloudSaveFile_(p,f,now) {
     driveId = file.getId(); driveUrl = file.getUrl();
   }
   cloudWrite_('ExamFiles',{FileID:'FILE-'+Utilities.getUuid(),SubmissionID:p.id||'',TaskID:p.taskId||p.id||'',Version:Number(p.version||1),Kind:f.kind||'',Name:f.name||'',MimeType:f.type||'',Size:Number(f.size||0),DriveFileID:driveId,DriveUrl:driveUrl,UploadedAt:now},['SubmissionID','Version','Kind']);
+}
+function cloudUploadFile_(p) {
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (!p || !p.id || !p.file) throw new Error('missing file');
+    const now = new Date().toISOString();
+    cloudSaveFile_(p,p.file,now);
+    return {ok:true,submissionId:p.id,kind:p.file.kind||'',updatedAt:now};
+  } finally { lock.releaseLock(); }
 }
 function cloudUploadFolder_() {
   const props = PropertiesService.getScriptProperties(), key = 'CLOUD_UPLOAD_FOLDER_ID';
