@@ -46,7 +46,16 @@ function cloudSheet_(name) {
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
   const headers = CLOUD_HEADERS[name];
-  if (headers && sh.getLastRow() === 0) sh.getRange(1,1,1,headers.length).setValues([headers]);
+  if (headers) {
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1,1,1,headers.length).setValues([headers]);
+    } else {
+      const width = Math.max(1, sh.getLastColumn());
+      const current = sh.getRange(1,1,1,width).getValues()[0].map(String).filter(Boolean);
+      const missing = headers.filter(h => current.indexOf(h) < 0);
+      if (missing.length) sh.getRange(1,width + 1,1,missing.length).setValues([missing]);
+    }
+  }
   return sh;
 }
 function cloudRows_(name) {
@@ -58,7 +67,8 @@ function cloudRows_(name) {
   });
 }
 function cloudWrite_(name, row, keyHeaders) {
-  const sh = cloudSheet_(name), headers = CLOUD_HEADERS[name];
+  const sh = cloudSheet_(name);
+  const headers = sh.getRange(1,1,1,Math.max(1,sh.getLastColumn())).getValues()[0].map(String).filter(Boolean);
   const rows = cloudRows_(name);
   const match = rows.find(r => keyHeaders.every(k => String(r[k] || '') === String(row[k] || '')));
   const values = headers.map(h => row[h] === undefined ? '' : row[h]);
